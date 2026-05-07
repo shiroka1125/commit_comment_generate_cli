@@ -70,7 +70,7 @@ def main():
         response = llm_client.invoke(prompt)
         end_time = time.perf_counter() - start_time
         print(f"処理時間: {end_time:.2f}秒")
-        return response.content
+        return response.content[0]
     except Exception as e:
         print(f"エラーが発生しました: {e}")
         return None
