@@ -52,7 +52,9 @@ def main():
 
         prompt = [
             SystemMessage(
-                content="あなたは優れたエンジニアです。git diffの内容を見て、コミットコメントを生成してください。"
+                content="""あなたは優れたエンジニアです。
+                        git diffの内容を見て、コミットコメントを生成してください。
+                        出力は必ず出力例に沿ってください。それ以外の出力は必要ありません。"""
             ),
             HumanMessage(content=git_diff_result),
             AIMessage(
