@@ -1,11 +1,20 @@
+import logging
 import subprocess
 import time
 
 import typer
 from langchain import chat_models
-from langchain.messages import AIMessage, HumanMessage, SystemMessage
+from langchain.messages import HumanMessage, SystemMessage
 
 app = typer.Typer()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[logging.FileHandler("ccg.log")],
+)
+
+logger = logging.getLogger(__name__)
 
 
 def get_git_diff():
@@ -52,24 +61,27 @@ def main():
 
         prompt = [
             SystemMessage(
-                content="""あなたは優れたエンジニアです。
-                        git diffの内容を見て、コミットコメントを生成してください。
-                        出力は出力例を参考にしてください。"""
-            ),
-            HumanMessage(content=git_diff_result),
-            AIMessage(
-                content="""
-                            以下の出力例を参考にコミットコメントを生成してください。
+                content="""git diffの内容から、適切なコミットメッセージを生成してください。
+
+                            ## 出力形式
                             <type>: <subject>
                             ・<変更点1>
-                            ・<変更点2>        
-                                """
+                            ・<変更点2>
+
+                            ## ルール
+                            - typeは feat, fix, docs, style, refactor, chore などから選択してください。
+                            - 日本語で簡潔に記述してください。"""
             ),
+            HumanMessage(content=f"これがgit diffの内容です: \n{git_diff_result}"),
         ]
 
         response = llm_client.invoke(prompt)
         end_time = time.perf_counter() - start_time
-        print(f"処理時間: {end_time:.2f}秒")
+        response_length = len(response.content)
+        response_tokens = llm_client.get_num_tokens(response.content)
+        logger.info(
+            f"処理時間: {end_time:.2f}秒, レスポンス長: {response_length}文字, トークン数: {response_tokens}トークン."
+        )
         return response.content
     except Exception as e:
         print(f"エラーが発生しました: {e}")
