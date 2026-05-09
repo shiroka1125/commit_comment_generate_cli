@@ -84,6 +84,13 @@ feat: ユーザー認証機能を追加
 |---|---|
 | `ccg start` | LLMプロバイダーとAPIキーを設定 |
 | `ccg generate` | ステージ済み変更からコミットメッセージを生成 |
+| `ccg pr` | ベースブランチとの差分からPR descriptionを生成 |
+
+`ccg pr` はデフォルトで `main` ブランチとの差分を使います。別のブランチを指定する場合：
+
+```bash
+ccg pr --base develop
+```
 
 ## ログ
 

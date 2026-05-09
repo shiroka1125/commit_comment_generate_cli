@@ -44,6 +44,37 @@ def get_git_diff():
     return git_diff_result
 
 
+def get_git_diff_from_base(base_branch: str):
+    exclude_patterns = [
+        ":(exclude)*.lock",
+        ":(exclude)package-lock.json",
+        ":(exclude)*.min.js",
+        ":(exclude).gitignore",
+    ]
+
+    command = ["git", "diff", f"{base_branch}...HEAD", "--", "."] + exclude_patterns
+
+    result = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    if result.returncode != 0:
+        raise ValueError(f"ブランチ '{base_branch}' が見つかりません。")
+    return result.stdout
+
+
+def get_commit_log(base_branch: str):
+    result = subprocess.run(
+        ["git", "log", f"{base_branch}..HEAD", "--oneline"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    return result.stdout
+
+
 def init_chatmodel():
     provider, model, api_key = load_config()
     if not provider or not api_key:
@@ -114,6 +145,57 @@ def generate():
             f"処理時間: {end_time:.2f}秒, レスポンス長: {response_length}文字, トークン数: {response_tokens}トークン."
         )
         print(response.content)
+    except typer.Exit:
+        raise
+    except Exception as e:
+        print(f"エラーが発生しました: {e}")
+
+
+@app.command()
+def pr(base: str = typer.Option("main", help="比較元のブランチ名")):
+    try:
+        start_time = time.perf_counter()
+
+        diff = get_git_diff_from_base(base)
+        commits = get_commit_log(base)
+
+        if not diff:
+            print(f"`{base}` ブランチからの差分がありません。")
+            return
+
+        llm_client = init_chatmodel()
+
+        prompt = [
+            SystemMessage(
+                content="""git diffとコミット履歴をもとに、GitHubのPull RequestのDescriptionを生成してください。
+
+                            ## 出力形式
+                            ## 概要
+                            （このPRで何をしたかを2〜3文で説明）
+
+                            ## 変更内容
+                            ・<変更点1>
+                            ・<変更点2>
+
+                            ## ルール
+                            - 日本語で記述してください。
+                            - 技術的な詳細より、目的や背景を重視してください。"""
+            ),
+            HumanMessage(
+                content=f"## コミット履歴\n{commits}\n\n## git diff\n{diff}"
+            ),
+        ]
+
+        response = llm_client.invoke(prompt)
+        end_time = time.perf_counter() - start_time
+        response_length = len(response.content)
+        response_tokens = llm_client.get_num_tokens(response.content)
+        logger.info(
+            f"処理時間: {end_time:.2f}秒, レスポンス長: {response_length}文字, トークン数: {response_tokens}トークン."
+        )
+        print(response.content)
+    except ValueError as e:
+        print(f"エラー: {e}")
     except typer.Exit:
         raise
     except Exception as e:
