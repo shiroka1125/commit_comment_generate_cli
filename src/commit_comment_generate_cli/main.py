@@ -6,6 +6,8 @@ import typer
 from langchain import chat_models
 from langchain.messages import HumanMessage, SystemMessage
 
+from commit_comment_generate_cli.keyring import load_config, save_config
+
 app = typer.Typer()
 
 logging.basicConfig(
@@ -15,6 +17,12 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+PROVIDERS: dict[str, tuple[str, str]] = {
+    "1": ("google_genai", "gemini-2.5-flash"),
+    "2": ("openai", "gpt-4o"),
+    "3": ("anthropic", "claude-opus-4-5"),
+}
 
 
 def get_git_diff():
@@ -36,17 +44,40 @@ def get_git_diff():
     return git_diff_result
 
 
-def init_chatmodel(model: str = "gemini-2.5-flash"):
+def init_chatmodel():
+    provider, model, api_key = load_config()
+    if not provider or not api_key:
+        typer.echo(
+            "設定が見つかりません。`ccg start` を実行してAPIキーを設定してください。"
+        )
+        raise typer.Exit(1)
+
     llm_client = chat_models.init_chat_model(
-        model_provider="google_genai",
+        model_provider=provider,
         model=model,
         temperature=0,
+        api_key=api_key,
     )
     return llm_client
 
 
-@app.callback()
-def main():
+@app.command()
+def start():
+    typer.echo("使用するLLMプロバイダーを選択してください:")
+    for key, (provider, default_model) in PROVIDERS.items():
+        typer.echo(f"  {key}: {provider}  (デフォルトモデル: {default_model})")
+
+    choice = typer.prompt("番号", default="1")
+    provider, default_model = PROVIDERS.get(choice, PROVIDERS["1"])
+    model = typer.prompt("モデル名", default=default_model)
+    api_key = typer.prompt("APIキー", hide_input=True)
+
+    save_config(provider, model, api_key)
+    typer.echo(f"設定を保存しました: {provider} / {model}")
+
+
+@app.command()
+def generate():
     try:
         start_time = time.perf_counter()
 
@@ -82,7 +113,12 @@ def main():
         logger.info(
             f"処理時間: {end_time:.2f}秒, レスポンス長: {response_length}文字, トークン数: {response_tokens}トークン."
         )
-        return response.content
+        print(response.content)
+    except typer.Exit:
+        raise
     except Exception as e:
         print(f"エラーが発生しました: {e}")
-        return None
+
+
+def main():
+    app()
