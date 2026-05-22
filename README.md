@@ -92,6 +92,32 @@ feat: ユーザー認証機能を追加
 ccg pr --base develop
 ```
 
+## 除外ファイルのカスタマイズ
+
+`ccg generate` / `ccg pr` が差分を取得する際、デフォルトで以下のファイルを除外します。
+
+```
+*.lock
+package-lock.json
+*.min.js
+.gitignore
+```
+
+プロジェクトルートに `.ccgignore` を作成すると、除外パターンを上書きできます。
+
+```
+# .ccgignore
+*.lock
+package-lock.json
+*.min.js
+dist/
+build/
+```
+
+- 1行1パターン（glob形式）
+- `#` で始まる行はコメント
+- `.ccgignore` が存在する場合はデフォルト設定を完全に置き換えます
+
 ## ログ
 
 実行ログ（処理時間・レスポンス長・トークン数）は `ccg.log` に出力されます。

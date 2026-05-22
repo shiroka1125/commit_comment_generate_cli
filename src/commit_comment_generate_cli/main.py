@@ -1,12 +1,12 @@
 import logging
-import subprocess
 import time
 
 import typer
-from langchain import chat_models
 from langchain.messages import HumanMessage, SystemMessage
 
-from commit_comment_generate_cli.keyring import load_config, save_config
+from commit_comment_generate_cli.git import get_commit_log, get_git_diff, get_git_diff_from_base
+from commit_comment_generate_cli.keyring import save_config
+from commit_comment_generate_cli.llm import PROVIDERS, init_chatmodel
 
 app = typer.Typer()
 
@@ -15,81 +15,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[logging.FileHandler("ccg.log")],
 )
-
 logger = logging.getLogger(__name__)
-
-PROVIDERS: dict[str, tuple[str, str]] = {
-    "1": ("google_genai", "gemini-2.5-flash"),
-    "2": ("openai", "gpt-4o"),
-    "3": ("anthropic", "claude-opus-4-5"),
-}
-
-
-def get_git_diff():
-    exclude_patterns = [
-        ":(exclude)*.lock",
-        ":(exclude)package-lock.json",
-        ":(exclude)*.min.js",
-        ":(exclude).gitignore",
-    ]
-
-    command = ["git", "diff", "--staged", "--", "."] + exclude_patterns
-
-    git_diff_result = subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-    ).stdout
-    return git_diff_result
-
-
-def get_git_diff_from_base(base_branch: str):
-    exclude_patterns = [
-        ":(exclude)*.lock",
-        ":(exclude)package-lock.json",
-        ":(exclude)*.min.js",
-        ":(exclude).gitignore",
-    ]
-
-    command = ["git", "diff", f"{base_branch}...HEAD", "--", "."] + exclude_patterns
-
-    result = subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-    )
-    if result.returncode != 0:
-        raise ValueError(f"ブランチ '{base_branch}' が見つかりません。")
-    return result.stdout
-
-
-def get_commit_log(base_branch: str):
-    result = subprocess.run(
-        ["git", "log", f"{base_branch}..HEAD", "--oneline"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-    )
-    return result.stdout
-
-
-def init_chatmodel():
-    provider, model, api_key = load_config()
-    if not provider or not api_key:
-        typer.echo(
-            "設定が見つかりません。`ccg start` を実行してAPIキーを設定してください。"
-        )
-        raise typer.Exit(1)
-
-    llm_client = chat_models.init_chat_model(
-        model_provider=provider,
-        model=model,
-        temperature=0,
-        api_key=api_key,
-    )
-    return llm_client
 
 
 @app.command()
@@ -112,11 +38,9 @@ def generate():
     try:
         start_time = time.perf_counter()
 
-        git_diff_result = get_git_diff()
-        if not git_diff_result:
-            print(
-                "ファイルがステージされていません。変更をステージング後にこのコマンドを実行してください。"
-            )
+        git_diff = get_git_diff()
+        if not git_diff:
+            print("ファイルがステージされていません。変更をステージング後にこのコマンドを実行してください。")
             return
 
         llm_client = init_chatmodel()
@@ -134,15 +58,14 @@ def generate():
                             - typeは feat, fix, docs, style, refactor, chore などから選択してください。
                             - 日本語で簡潔に記述してください。"""
             ),
-            HumanMessage(content=f"これがgit diffの内容です: \n{git_diff_result}"),
+            HumanMessage(content=f"これがgit diffの内容です: \n{git_diff}"),
         ]
 
         response = llm_client.invoke(prompt)
-        end_time = time.perf_counter() - start_time
-        response_length = len(response.content)
-        response_tokens = llm_client.get_num_tokens(response.content)
+        elapsed = time.perf_counter() - start_time
         logger.info(
-            f"処理時間: {end_time:.2f}秒, レスポンス長: {response_length}文字, トークン数: {response_tokens}トークン."
+            f"処理時間: {elapsed:.2f}秒, レスポンス長: {len(response.content)}文字, "
+            f"トークン数: {llm_client.get_num_tokens(response.content)}トークン."
         )
         print(response.content)
     except typer.Exit:
@@ -157,12 +80,11 @@ def pr(base: str = typer.Option("main", help="比較元のブランチ名")):
         start_time = time.perf_counter()
 
         diff = get_git_diff_from_base(base)
-        commits = get_commit_log(base)
-
         if not diff:
             print(f"`{base}` ブランチからの差分がありません。")
             return
 
+        commits = get_commit_log(base)
         llm_client = init_chatmodel()
 
         prompt = [
@@ -181,17 +103,14 @@ def pr(base: str = typer.Option("main", help="比較元のブランチ名")):
                             - 日本語で記述してください。
                             - 技術的な詳細より、目的や背景を重視してください。"""
             ),
-            HumanMessage(
-                content=f"## コミット履歴\n{commits}\n\n## git diff\n{diff}"
-            ),
+            HumanMessage(content=f"## コミット履歴\n{commits}\n\n## git diff\n{diff}"),
         ]
 
         response = llm_client.invoke(prompt)
-        end_time = time.perf_counter() - start_time
-        response_length = len(response.content)
-        response_tokens = llm_client.get_num_tokens(response.content)
+        elapsed = time.perf_counter() - start_time
         logger.info(
-            f"処理時間: {end_time:.2f}秒, レスポンス長: {response_length}文字, トークン数: {response_tokens}トークン."
+            f"処理時間: {elapsed:.2f}秒, レスポンス長: {len(response.content)}文字, "
+            f"トークン数: {llm_client.get_num_tokens(response.content)}トークン."
         )
         print(response.content)
     except ValueError as e:

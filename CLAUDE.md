@@ -30,20 +30,22 @@ A single-command CLI tool that reads `git diff --staged`, sends it to an LLM, an
 
 ### Key files
 
-- `src/commit_comment_generate_cli/main.py` — CLI commands, git diff extraction, LLM prompt, logging
+- `src/commit_comment_generate_cli/main.py` — Typer app, CLI command handlers (`start`, `generate`, `pr`), logging setup
+- `src/commit_comment_generate_cli/git.py` — Git operations: `get_git_diff()`, `get_git_diff_from_base()`, `get_commit_log()`
+- `src/commit_comment_generate_cli/llm.py` — `PROVIDERS` config, `init_chatmodel()` via LangChain
 - `src/commit_comment_generate_cli/keyring.py` — API key storage/retrieval via OS keyring
 
 ### Flow
 
-1. `main()` (the default callback) runs on every `ccg` invocation
-2. `get_git_diff()` runs `git diff --staged`, excluding lock files and `.gitignore`
-3. `init_chatmodel()` initializes via `langchain.chat_models.init_chat_model` — currently hardcoded to `google_genai` / `gemini-2.5-flash`; the active branch (`adapt_to_any_llm`) is extending this to support arbitrary providers
+1. `main()` runs `app()` (Typer)
+2. `get_git_diff()` / `get_git_diff_from_base()` in `git.py` runs the appropriate `git diff`, excluding lock files
+3. `init_chatmodel()` in `llm.py` loads provider/model/key from keyring, then initializes via `langchain.chat_models.init_chat_model`
 4. A `SystemMessage` + `HumanMessage` prompt is sent; the response is printed
 5. Processing time, response length, and token count are logged to `ccg.log` (gitignored)
 
 ### API key storage
 
-Keys are stored in the OS keyring under service `LLM_API_KEY` / username `user` by default. `ccg start` prompts for and saves the key. `keyring.py` exposes `get_keyring`, `set_keyring_password`, and `delete_keyring_password`.
+Keys are stored in the OS keyring. `ccg start` prompts for and saves the key. `keyring.py` exposes `save_config()` and `load_config()`.
 
 ### Commit message format (prompt output)
 
